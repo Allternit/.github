@@ -22,4 +22,4 @@ Allternit builds AI agents that work on your computer, in the cloud, and from yo
 
 [allternit.com](https://allternit.com) · [Docs](https://docs.allternit.com) · [Services](https://services.allternit.com) · [A://Labs](https://labs.allternit.com)
 
-Security issues: see `SECURITY.md` in the repository concerned.
+Security issues: email security@allternit.com. See [SECURITY.md](https://github.com/Allternit/.github/blob/main/SECURITY.md).
