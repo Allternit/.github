@@ -91,8 +91,8 @@ The gaps marked in bold are exactly what the researched projects fill.
 | Project | Role in Descent | Where it plugs in |
 |---|---|---|
 | Liquid **d1-3B** / d1-omni-600M | Default local S1 head (8 ms) | `system_one_local` backend; its llama-server already exposes `/v1/systemone` |
-| Cloudflare **Clef / Clef-flash**, vLLM-SR **d3** family | Server-side S1 heads; Clef is Jev-API-compatible | New `vendor` backends in `decisions/backends.rs` |
-| TypeSafe **Jev** | Hosted baseline and teacher | Existing `typesafe` backend (needs the paid-account OK) |
+| Cloudflare **Clef / Clef-flash**, vLLM-SR **d3** family | Server-side S1 heads, baseline and teacher (open weights, Apache 2.0) | Self-hosted, as new open-weight backends in `decisions/backends.rs` |
+| TypeSafe **Jev** | Not used (decision 3); Clef speaks the same API | Existing `typesafe` backend stays off |
 | **Unsloth** decision training | The missing training step | New `domains/decision-trainer` job fed by Harvest |
 | **EmbeddingGemma 2** | Phone-tier decision heads, and the retrieval embedder | Decision base model + context compiler |
 | **AgentRun** | The S1 → S0 move, and the `call` / `judge` / fallback / escalate pattern | Graph templates + the compile-to-code step |
@@ -138,9 +138,20 @@ The gaps marked in bold are exactly what the researched projects fill.
   story then holds up, not just the cost story.
 - Every promotion is backed by receipts and replay evidence, which fits the existing "verified Run" contract.
 
-## Open questions for the founders
+## Founder decisions (2026-10-12)
 
-1. Phase 1 needs `ALLTERNIT_AGENCY_EXECUTE=1` somewhere real, which the code says needs a founder decision. Where?
-2. Can the oracle labels from customer runs be used for training, per org, or only with opt-in?
-3. Paid Jev / OpenAI Decisions account for baselines: yes or no (`vendors.rs:29`)?
-4. Should trained heads stay per org (privacy, moat) or be shared across orgs (faster learning)?
+1. **Where it runs: in the cloud first.** Enable `ALLTERNIT_AGENCY_EXECUTE=1` on a cloud test deployment only, with
+   `ALLTERNIT_AGENCY_EXECUTE_ORGS` limited to internal test orgs. Turn it on for customers once the Phase 1 metrics look right.
+2. **Training data: opt-in.** Harvest records examples only for orgs that opt in, with a new org setting next to
+   `/v1/agency-safety/policy`. Runs from orgs that have not opted in still work; they just aren't recorded.
+3. **No paid decision vendors.** Baselines and teachers are open-weight models:
+   - **Cloudflare Clef / Clef-flash** (Apache 2.0, Jev-API-compatible) are the "vendor-grade" baseline and the teacher.
+   - **vLLM-SR d3 family** (Apache 2.0) cover server-side heads.
+   - **Liquid d1** handles local and edge. Its LFM Open license is reportedly free under $10M revenue; check the terms before scaling.
+
+   The `typesafe` and OpenAI vendor backends stay off. The planner model stays the last-resort oracle.
+4. **Trained heads are shared across orgs.** They are trained on pooled opt-in data, so every opted-in customer improves
+   the heads for everyone. Guardrails:
+   - Strip identifiers, secrets and raw tool payloads before pooling.
+   - Hold out a slice per org for evals, so a shared head can't regress one customer without it showing up.
+   - `local_only` orgs still get the shared heads, which run on-device; their data is pooled only if they opt in.
