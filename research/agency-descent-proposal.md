@@ -150,6 +150,14 @@ EmbeddingGemma 2 later) then serves agents, memory, notebook and decisions alike
 - Add the `/v1/descent` metrics endpoint.
 - *Proves:* memory and decisions run as one loop, and we can see how much work could move to S1.
 
+  **Status (2026-10-12):** code done on `allternit-platform` branch `claude/stoic-ritchie-6g7zpd`, not yet merged.
+  - Every embedder now runs **EmbeddingGemma 2**: the API memory index, the memory agent, open-notebook and gizzi brain.
+  - New **`open` decision backend** speaking `/v1/systemone`, for d1, Clef and d3. The sidecar's new `systemone` engine runs **d1-3B**, tested live.
+  - **Opt-in harvest** with DLP redaction and JSONL export (`/v1/decisions/training`, `/v1/decisions/datasets/:kind`).
+  - **`/v1/descent`** metrics endpoint.
+  - **Memory recall** in the Agency context step.
+  - Still to do: the cloud test deployment itself (run the two sidecars next to the API and enable execution for internal orgs).
+
 **Phase 2: Replay overrides + distillation.**
 - Add `overrides` to `/v1/replays`.
 - Run an Unsloth trainer job and register the new head in shadow.
