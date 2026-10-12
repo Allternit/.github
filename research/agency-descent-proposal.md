@@ -197,3 +197,57 @@ EmbeddingGemma 2 later) then serves agents, memory, notebook and decisions alike
    - Strip identifiers, secrets and raw tool payloads before pooling.
    - Hold out a slice per org for evals, so a shared head can't regress one customer without it showing up.
    - `local_only` orgs still get the shared heads, which run on-device; their data is pooled only if they opt in.
+
+---
+
+## Gap analysis (2026-10-12, after PR Allternit/allternit-platform#1515)
+
+**Bottom line:** PR #1515 builds the *plumbing* of the loop: one shared embedder, open decision models, harvest, metrics, and memory in runs. The loop itself does not close yet. Nothing trains a head, nothing tests a new head against past runs, and Agency runs barely use S1 decisions. Those three gaps are what to do next.
+
+### A. Phase 1 leftovers (finish before turning anything on)
+
+| # | Gap | Why it matters | Who |
+|---|---|---|---|
+| A1 | **Cloud test deployment.** Run serve-embed (EmbeddingGemma 2) and the decision sidecar next to the cloud API, and set `ALLTERNIT_AGENCY_EXECUTE=1` for internal orgs only | Founder decision 1. Nothing runs for real until this exists | Infra / founders |
+| A2 | **GPU for decision models.** d1-3B took about 6.5 s on CPU against about 8–50 ms on GPU; Clef-flash needs about 41 GB of VRAM | The `open` tier is only "fast" on a GPU | Infra |
+| A3 | **Desktop impact.** The embed download grows from about 600 MB to about 1.5 GB, plus torchvision and pillow; `release-preflight.mjs` has not been run | Desktop release lock: the preflight must be 26/0 | Eng |
+| A4 | **Opt-in UI.** `PUT /v1/decisions/training` has no screen in the console or workspace | Orgs cannot opt in without curl | Eng (UI) |
+| A5 | **Descent dashboard.** `/v1/descent` returns JSON only | The customer pitch needs to be visible | Eng (UI) |
+| A6 | **Legal.** Cross-org pooled training needs ToS / DPA wording. The Liquid d1 license (LFM Open 1.0) is reportedly limited to companies under $10M revenue | Decisions 2 and 4 need it on paper | Founders / legal |
+| A7 | **Re-ingest open-notebook sources.** Old MiniLM chunks are skipped until re-ingested | Old notebooks look empty to search | Ops script |
+
+### B. The loop does not close yet (Phase 2: the core of Descent)
+
+| # | Gap | Today | Needed |
+|---|---|---|---|
+| B1 | **Agency runs barely use S1 decisions** | `executor.rs`: S1 is shadow classification only. Real `/v1/decisions` traffic comes from computer use | Graph nodes with `cognitive_role: S1` that call `decide()` live. Without this there is little to harvest or measure |
+| B2 | **No trainer** | `flywheel.rs:24` says "Training is not here". Unsloth recipe and Model Lab (:9020) exist but are not wired | A job: dataset export → Unsloth decision fine-tune (d1-3B / EmbeddingGemma-2 base) → adapter → artifact store |
+| B3 | **No model-backed head** | The only head is `head.lookup` (exact match) | A `Head` that serves a trained adapter through the sidecar, registered in shadow, promoted by the existing flywheel |
+| B4 | **Replay cannot swap anything** | "replay overrides are not available in the alpha" | `overrides` on `POST /v1/replays` (head / model class / graph version), so a candidate is tested on past runs before going live |
+| B5 | **No automated acceptance rule** | Flywheel promotes on live accuracy only | Promote only if replay quality ≥ baseline − ε and cost or latency improves; report pass@k (Sharpening Tax) |
+| B6 | **Shared heads do not reach devices** | Heads live server-side | Ship promoted adapters to Desktop/phone for `local_only` orgs |
+
+### C. Later phases (designed, not started)
+
+| # | Gap | Phase |
+|---|---|---|
+| C1 | **S1 → S0 compile:** turn near-deterministic decisions into code nodes (AgentRun move) | 3 |
+| C2 | **Trace monitor:** flow-1-style error finder on every run, as a decision kind | 3 |
+| C3 | **Entity layer:** CorpusMap-style pages from `ontology-runtime` + `context-pack-builder`. Neither is a dependency of allternit-api today | 3 |
+| C4 | **One memory store:** the vector space is shared now, but memory agent (:3201), open-notebook (SurrealDB/Qdrant) and the API index are still separate stores | 3 |
+| C5 | **Eval harness:** trajectory graders, a CI regression gate, a simulated user (MIMESIS-style), deterministic fault replay (Workers IO) | 3 |
+| C6 | **Harness learning:** a proposer edits task-type graphs (`evolution-layer`, MASS/VERA patterns), human-approved | 4 |
+| C7 | **Local S2:** Qwen3.8-Flash / Strata in `services/local-engine` catalog as `mc.local` | Any time |
+
+### D. Risks to watch
+- **Privacy:** harvest redaction uses the DLP regex set (keys, cards, emails, SSNs and similar). Names and free-text PII are not caught. Pooled export strips scope and owner ids, but the context text itself may still identify someone.
+- **Re-embedding load:** every existing memory row re-embeds on first start with the new model.
+- **Memory in prompts:** recalled memory is added to S2/S3 prompts. Watch token cost and prompt injection from stored memories (the `injection_score` DLP check is not applied yet).
+
+### Suggested order
+1. A1 + A2 + A3 (get it running in the cloud test org)
+2. B1 (real S1 traffic)
+3. B2 + B3 (first trained head)
+4. B4 + B5 (prove it safely)
+5. A4 + A5 (show customers)
+6. Then Phase 3
