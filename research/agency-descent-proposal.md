@@ -86,6 +86,38 @@ The gaps marked in bold are exactly what the researched projects fill.
 
 ---
 
+## The unified system: wire in what already exists
+
+Most of the loop is already built somewhere in `allternit-platform`, just not connected to the Agency API.
+The repo's own plan, the eight-plane table in `REPO_STRUCTURE.md:134-147`, already says these pieces belong together.
+In code, `agency_api` only reaches the decision runtime, System One/Laya and computer use. Everything below is wiring
+plus a few upgrades, not new systems.
+
+| Plane (REPO_STRUCTURE) | Already built | Connected to Agency today? | Descent role | Upgrade from the research |
+|---|---|---|---|---|
+| 5 Context | **`memory_index.rs`**: hybrid BM25 (FTS5) + cosine + RRF + HNSW over facts, entities, observations and doc chunks. Embedder: `nomic-ai/modernbert-embed-base` at :7719 (`tools/system-one-local/laya/serve-embed.py`), spawned by desktop | ❌ (same binary, not called) | Makes routing `retrieval` real: the context compiler pulls memory into every run | Test **EmbeddingGemma 2** as `ALLTERNIT_EMBED_MODEL`. Same OpenAI-style endpoint; it adds images, audio and code, and MRL lets the index shrink |
+| 5 Context | **`context-pack-builder` + `ontology-runtime`** (typed object graph) | ❌ (not a dependency of allternit-api) | Deterministic context bundles per node; the ontology becomes the **CorpusMap-style entity layer** | Build entity pages offline from memory_index entities |
+| 5 Context | `semantic_cache.rs` (shadow only) | ❌ | Step 0 of every decision: "check saved results first" (the Jev support pattern) | Promote out of shadow via the same replay gate |
+| 4 Cognition | **`domains/decision-runtime`** scorer (`/v1/score`; Qwen3.5-4B on MLX or llama.cpp) | ✅ `local` backend | The S1 heads | Add **d1-3B** (GGUF, llama.cpp ≥ Oct 8) and **Clef-flash / d3-flash** as presets. Clef and d1 use schema heads, so they need a new engine next to `engine_llamacpp.py` |
+| 4 Cognition | `flywheel.rs` (only head is `head.lookup`, an exact-match read) | ✅ | Promotion gate | Accept trained adapter heads, not just lookups |
+| Training | **`tools/system-one-local/laya/finetune/`** (Laya typed-decision fine-tune) + **`services/model-training`** "Model Lab" (:9020, GGUF/MLX export) | ❌ | The missing Distil step | Use the **Unsloth** decision recipe; feed it opt-in Harvest data |
+| 6 Execution | **`services/local-engine`** (:3015, llama.cpp runtimes, `/recommend`) | ❌ (only `local_engine_routes.rs`) | Serves `mc.local` S2 models and trained heads | Add **Qwen3.8-Flash-Next / Strata** to its catalog |
+| 7 Governance | **`domains/kernel/.../evaluation-harness`**, `domains/governance` **`allternit-evals`**, receipts, replay | partly (receipts and replay yes; evals no) | The Judge step | Replay overrides + **flow-1-style** trace monitor |
+| Self-improvement | **`evolution-layer`** ("ALMA, SkillRL, AdaptEvolve"), `services/self-improve` (scaffold), `allternit-rlm` | ❌ | Phase 4 harness learning | Patterns from **MASS / Harness Learning / VERA** |
+
+**Consolidate embedders.** There are four today: modernbert (API), `mxbai-embed-large` via Ollama
+(`services/memory`), MiniLM (`open-notebook`), and OpenAI `text-embedding-3` (gizzi brain). Moving everything onto the one
+`ALLTERNIT_EMBED_URL` endpoint is what makes memory **one** system. Whatever runs there (modernbert now, possibly
+EmbeddingGemma 2 later) then serves agents, memory, notebook and decisions alike.
+
+**Why the unified system is fast:**
+- Every step tries the cheapest layer first: semantic cache → trained S1 head (ms, local) → retrieval-backed S2 → S3.
+- Each layer's misses become training data for the layer below it.
+- Desktop already spawns the embedder and the decision scorer locally (`system-one-manager.ts`,
+  `decision-runtime-manager.ts`). For the cloud test (decision 1), run the same two services next to the cloud API.
+
+---
+
 ## Where each researched project fits
 
 | Project | Role in Descent | Where it plugs in |
@@ -110,11 +142,13 @@ The gaps marked in bold are exactly what the researched projects fill.
 
 ## Phased plan
 
-**Phase 1: Harvest + local S1 (smallest useful slice).**
-- Add d1-3B as the `system_one_local` backend, using GGUF through the existing llama.cpp path.
-- Log every decision with its oracle label and verifier outcome.
+**Phase 1: Wire + Harvest, on the cloud test deployment.**
+- Deploy the decision-runtime scorer and the embed server next to the cloud API, with execution enabled for internal test orgs only.
+- Call `memory_index` from the Agency context step, so `retrieval` stops being trace-only.
+- Add d1-3B and Clef-flash presets to decision-runtime.
+- Log every decision (oracle label + verifier outcome) for opted-in orgs.
 - Add the `/v1/descent` metrics endpoint.
-- *Proves:* decisions run locally, and we can see what fraction could be.
+- *Proves:* memory and decisions run as one loop, and we can see how much work could move to S1.
 
 **Phase 2: Replay overrides + distillation.**
 - Add `overrides` to `/v1/replays`.
